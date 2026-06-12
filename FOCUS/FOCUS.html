@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地狱级人机验证</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+        }
+        .captcha-container {
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 350px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background-color: #4a90e2;
+            color: white;
+            padding: 20px;
+            position: relative;
+        }
+        .instruction {
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        .target {
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .countdown {
+            position: absolute;
+            right: 20px;
+            top: 30px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .grid-container {
+            position: relative;
+            width: 330px;
+            height: 330px;
+            margin: 10px auto;
+            background: #fff;
+        }
+        .cell {
+            position: absolute;
+            width: 104px;
+            height: 104px;
+            perspective: 1000px;
+            cursor: pointer;
+            /* 1/3拍 (BPM 100 -> 1拍600ms -> 1/3拍200ms) */
+            transition: top 0.2s ease-in-out, left 0.2s ease-in-out;
+        }
+        .flipper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transition: transform 0.4s;
+            transform-style: preserve-3d;
+        }
+        .cell.face-down .flipper {
+            transform: rotateY(180deg);
+        }
+        .front, .back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 2px;
+        }
+        .front {
+            /* 正面展示图片内容 */
+            background-size: cover;
+        }
+        .back {
+            /* 纯色背面 */
+            background-color: #8c92ac;
+            transform: rotateY(180deg);
+        }
+        .selected-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border: 4px solid #4a90e2;
+            background: rgba(255, 255, 255, 0.3);
+            display: none;
+            box-sizing: border-box;
+            z-index: 2;
+        }
+        .cell.selected .selected-overlay {
+            display: block;
+        }
+        .result-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            z-index: 3;
+        }
+        .footer {
+            padding: 10px;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #fafafa;
+            height: 40px;
+        }
+        .verify-btn {
+            background: #4a90e2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            display: none;
+        }
+        .verify-btn:hover {
+            background: #357abd;
+        }
+        .icons {
+            display: flex;
+            gap: 15px;
+            color: #777;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="captcha-container">
+    <div class="header" id="header">
+        <div class="instruction" id="instruction">请选择包含</div>
+        <div class="target" id="target-name">加载中...</div>
+        <div class="countdown" id="countdown"></div>
+    </div>
+    <div class="grid-container" id="grid">
+    </div>
+    <div class="footer">
+        <div class="icons">↻ 🎧 ℹ️</div>
+        <button class="verify-btn" id="verify-btn">验证</button>
+    </div>
+</div>
+
+<script>
+    // 题目配置
+    const THEMES = [
+        {
+            target: '珠颈斑鸠',
+            distractors: ['山斑鸠', '鸽子', '斑鸠'],
+            bgColor: '#5a7247'
+        },
+        {
+            target: '夜鹭',
+            distractors: ['企鹅', '白鹭', '海鸥'],
+            bgColor: '#2c3e50'
+        }
+    ];
+
+    // 生成内联SVG占位图（避免网络加载问题）
+    function getSvgUri(text, bgColor) {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="104" height="104"><rect width="104" height="104" fill="${bgColor}"/><text x="52" y="58" font-size="20" text-anchor="middle" fill="#fff" font-family="sans-serif">${text}</text></svg>`;
+        return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    }
+
+    // 音乐与动画节奏配置
+    const BPM = 100;
+    const BEAT_MS = 60000 / BPM;        // 一拍的时间 600ms
+    const HALF_BEAT_MS = BEAT_MS / 2;   // 半拍的时间 300ms
+    const TOTAL_TRANSFORMS = 16 * 4;    // 变换次数 64次
+
+    // 状态管理
+    let currentTheme;
+    let cellsData = [];
+    let phase = 0; // 1: 记忆, 2: 打乱, 3: 选择
+    let timerInterval = null;
+    let transformInterval = null;
+    let transformCount = 0;
+
+    const gridEl = document.getElementById('grid');
+    const targetNameEl = document.getElementById('target-name');
+    const instructionEl = document.getElementById('instruction');
+    const countdownEl = document.getElementById('countdown');
+    const verifyBtn = document.getElementById('verify-btn');
+    const headerEl = document.getElementById('header');
+
+    // 游戏初始化
+    function initGame() {
+        clearInterval(timerInterval);
+        clearInterval(transformInterval);
+        gridEl.innerHTML = '';
+        cellsData = [];
+        phase = 1;
+        verifyBtn.style.display = 'none';
+        headerEl.style.backgroundColor = '#4a90e2';
+
+        // 随机选定一个主题
+        currentTheme = THEMES[Math.floor(Math.random() * THEMES.length)];
+        targetNameEl.innerText = currentTheme.target;
+        instructionEl.innerText = '请在倒计时结束前记住包含';
+
+        // 生成9个格子数据 (保证有2-4个目标)
+        let targetCount = Math.floor(Math.random() * 3) + 2;
+        let items = Array(targetCount).fill(currentTheme.target);
+        while (items.length < 9) {
+            items.push(currentTheme.distractors[Math.floor(Math.random() * currentTheme.distractors.length)]);
+        }
+        items = items.sort(() => Math.random() - 0.5);
+
+        for (let i = 0; i < 9; i++) {
+            let row = Math.floor(i / 3);
+            let col = i % 3;
+            let isTarget = items[i] === currentTheme.target;
+
+            let cellDiv = document.createElement('div');
+            cellDiv.className = 'cell';
+            cellDiv.innerHTML = `
+                <div class="flipper">
+                    <div class="front" style="background-image: url('${getSvgUri(items[i], currentTheme.bgColor)}')"></div>
+                    <div class="back"></div>
+                </div>
+                <div class="selected-overlay"></div>
+                <div class="result-icon"></div>
+            `;
+
+            gridEl.appendChild(cellDiv);
+
+            // 点击事件
+            cellDiv.addEventListener('click', () => {
+                if (phase === 3) {
+                    let cellData = cellsData.find(c => c.id === i);
+                    cellData.isSelected = !cellData.isSelected;
+                    if (cellData.isSelected) {
+                        cellDiv.classList.add('selected');
+                    } else {
+                        cellDiv.classList.remove('selected');
+                    }
+                }
+            });
+
+            cellsData.push({
+                id: i,
+                row: row,
+                col: col,
+                isTarget: isTarget,
+                isSelected: false,
+                element: cellDiv
+            });
+        }
+
+        updatePositions();
+        startPhase1();
+    }
+
+    function updatePositions() {
+        cellsData.forEach(cell => {
+            // 每个格子宽104px，间隔大概6px，总宽度330
+            cell.element.style.top = `${cell.row * 110}px`;
+            cell.element.style.left = `${cell.col * 110}px`;
+        });
+    }
+
+    // 第一阶段：展示环节
+    function startPhase1() {
+        cellsData.forEach(c => c.element.classList.remove('face-down', 'selected'));
+        let timeLeft = 5;
+        countdownEl.innerText = timeLeft;
+
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            countdownEl.innerText = timeLeft;
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                startPhase2();
+            }
+        }, 1000);
+    }
+
+    // 第二阶段：打乱环节
+    function startPhase2() {
+        phase = 2;
+        instructionEl.innerText = '注意变换';
+        targetNameEl.innerText = 'FOCUS';
+        countdownEl.innerText = '';
+        headerEl.style.backgroundColor = '#d9534f'; // 变红警示
+
+        // 所有卡牌翻面
+        cellsData.forEach(c => c.element.classList.add('face-down'));
+
+        transformCount = 0;
+
+        // 延迟一下等翻面动画结束后开始矩阵变换
+        setTimeout(() => {
+            transformInterval = setInterval(() => {
+                applyRandomTransform();
+                transformCount++;
+                if (transformCount >= TOTAL_TRANSFORMS) {
+                    clearInterval(transformInterval);
+                    startPhase3();
+                }
+            }, HALF_BEAT_MS); // 半拍变一次
+        }, 500);
+    }
+
+    // 矩阵变换逻辑
+    function applyRandomTransform() {
+        const transformTypes = ['row_swap', 'col_swap', 'transpose', 'h_flip', 'v_flip', 'random_swap'];
+        const type = transformTypes[Math.floor(Math.random() * transformTypes.length)];
+
+        switch(type) {
+            case 'row_swap':
+                let r1 = Math.floor(Math.random() * 3);
+                let r2 = (r1 + 1 + Math.floor(Math.random() * 2)) % 3;
+                cellsData.forEach(c => {
+                    if (c.row === r1) c.row = -1;
+                    else if (c.row === r2) c.row = r1;
+                });
+                cellsData.forEach(c => { if (c.row === -1) c.row = r2; });
+                break;
+            case 'col_swap':
+                let c1 = Math.floor(Math.random() * 3);
+                let c2 = (c1 + 1 + Math.floor(Math.random() * 2)) % 3;
+                cellsData.forEach(c => {
+                    if (c.col === c1) c.col = -1;
+                    else if (c.col === c2) c.col = c1;
+                });
+                cellsData.forEach(c => { if (c.col === -1) c.col = c2; });
+                break;
+            case 'transpose':
+                cellsData.forEach(c => {
+                    let temp = c.row;
+                    c.row = c.col;
+                    c.col = temp;
+                });
+                break;
+            case 'h_flip': // 水平翻转 (列变)
+                cellsData.forEach(c => { c.col = 2 - c.col; });
+                break;
+            case 'v_flip': // 垂直翻转 (行变)
+                cellsData.forEach(c => { c.row = 2 - c.row; });
+                break;
+            case 'random_swap': // 随机交换两个
+                let i1 = Math.floor(Math.random() * 9);
+                let i2 = Math.floor(Math.random() * 9);
+                let tempR = cellsData[i1].row;
+                let tempC = cellsData[i1].col;
+                cellsData[i1].row = cellsData[i2].row;
+                cellsData[i1].col = cellsData[i2].col;
+                cellsData[i2].row = tempR;
+                cellsData[i2].col = tempC;
+                break;
+        }
+        updatePositions();
+    }
+
+    // 第三阶段：选择环节
+    function startPhase3() {
+        phase = 3;
+        headerEl.style.backgroundColor = '#4a90e2';
+        instructionEl.innerText = '请选择所有';
+        targetNameEl.innerText = currentTheme.target;
+        verifyBtn.style.display = 'block';
+
+        let timeLeft = 20;
+        countdownEl.innerText = timeLeft;
+
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            countdownEl.innerText = timeLeft;
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                checkResult();
+            }
+        }, 1000);
+    }
+
+    // 验证逻辑
+    function checkResult() {
+        clearInterval(timerInterval);
+        phase = 4; // 锁定操作
+        verifyBtn.style.display = 'none';
+
+        let isPass = true;
+
+        // 翻开所有卡牌并展示对错
+        cellsData.forEach(c => {
+            c.element.classList.remove('face-down');
+            let iconEl = c.element.querySelector('.result-icon');
+            iconEl.style.display = 'flex';
+
+            if (c.isTarget && c.isSelected) {
+                // 选对了
+                iconEl.innerHTML = '✔️';
+                iconEl.style.backgroundColor = '#5cb85c';
+            } else if (c.isTarget && !c.isSelected) {
+                // 漏选了
+                isPass = false;
+                iconEl.innerHTML = '❗';
+                iconEl.style.backgroundColor = '#f0ad4e';
+                c.element.classList.add('selected'); // 标出应该选的
+            } else if (!c.isTarget && c.isSelected) {
+                // 错选了
+                isPass = false;
+                iconEl.innerHTML = '❌';
+                iconEl.style.backgroundColor = '#d9534f';
+            } else {
+                iconEl.style.display = 'none';
+            }
+        });
+
+        // 2秒后结算
+        setTimeout(() => {
+            if (isPass) {
+                // 必须至少选了一个才算过，防止全部没点直接判定过
+                let hasSelected = cellsData.some(c => c.isSelected);
+                if(hasSelected) {
+                    window.location.href = 'https://www.bilibili.com/video/BV1UT42167xb/';
+                } else {
+                    alert('验证失败：您没有进行任何选择！');
+                    initGame();
+                }
+            } else {
+                alert('验证失败：请重新尝试！');
+                initGame();
+            }
+        }, 2000);
+    }
+
+    verifyBtn.addEventListener('click', checkResult);
+
+    // 启动游戏
+    window.onload = initGame;
+</script>
+
+</body>
+</html>
