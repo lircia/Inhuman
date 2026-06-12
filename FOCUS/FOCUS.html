@@ -81,6 +81,7 @@
         .front {
             /* 正面展示图片内容 */
             background-size: cover;
+            background-position: center center;
         }
         .back {
             /* 纯色背面 */
@@ -166,20 +167,79 @@
     const THEMES = [
         {
             target: '珠颈斑鸠',
-            distractors: ['山斑鸠', '鸽子', '斑鸠'],
-            bgColor: '#5a7247'
+            distractors: ['山斑鸠', '鸽子', '斑鸠']
         },
         {
             target: '夜鹭',
-            distractors: ['企鹅', '白鹭', '海鸥'],
-            bgColor: '#2c3e50'
+            distractors: ['企鹅', '白鹭', '海鸥']
         }
     ];
 
-    // 生成内联SVG占位图（避免网络加载问题）
-    function getSvgUri(text, bgColor) {
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="104" height="104"><rect width="104" height="104" fill="${bgColor}"/><text x="52" y="58" font-size="20" text-anchor="middle" fill="#fff" font-family="sans-serif">${text}</text></svg>`;
-        return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    // 本地图片库（每种 4 张，来源 Wikimedia Commons）
+    const IMAGE_MAP = {
+        '珠颈斑鸠': [
+            'images/zhujing_banjiu_1.jpg',
+            'images/zhujing_banjiu_2.jpg',
+            'images/zhujing_banjiu_3.jpg',
+            'images/zhujing_banjiu_4.jpg'
+        ],
+        '山斑鸠': [
+            'images/shan_banjiu_1.jpg',
+            'images/shan_banjiu_2.jpg',
+            'images/shan_banjiu_3.jpg',
+            'images/shan_banjiu_4.jpg'
+        ],
+        '鸽子': [
+            'images/gezi_1.jpg',
+            'images/gezi_2.jpg',
+            'images/gezi_3.jpg',
+            'images/gezi_4.jpg'
+        ],
+        '斑鸠': [
+            'images/banjiu_1.jpg',
+            'images/banjiu_2.jpg',
+            'images/banjiu_3.jpg',
+            'images/banjiu_4.jpg'
+        ],
+        '夜鹭': [
+            'images/yelu_1.jpg',
+            'images/yelu_2.jpg',
+            'images/yelu_3.jpg',
+            'images/yelu_4.jpg'
+        ],
+        '企鹅': [
+            'images/qie_1.jpg',
+            'images/qie_2.jpg',
+            'images/qie_3.jpg',
+            'images/qie_4.jpg'
+        ],
+        '白鹭': [
+            'images/bailu_1.jpg',
+            'images/bailu_2.jpg',
+            'images/bailu_3.jpg',
+            'images/bailu_4.jpg'
+        ],
+        '海鸥': [
+            'images/haiou_1.jpg',
+            'images/haiou_2.jpg',
+            'images/haiou_3.jpg',
+            'images/haiou_4.jpg'
+        ]
+    };
+
+    // 为 9 格分配图片，同物种尽量用不同照片
+    function assignImages(items) {
+        const used = {};
+        return items.map(name => {
+            const pool = IMAGE_MAP[name] || IMAGE_MAP['珠颈斑鸠'];
+            if (!used[name]) used[name] = new Set();
+            const taken = used[name];
+            let available = pool.filter(url => !taken.has(url));
+            if (available.length === 0) available = pool.slice();
+            const url = available[Math.floor(Math.random() * available.length)];
+            taken.add(url);
+            return url;
+        });
     }
 
     // 音乐与动画节奏配置
@@ -225,6 +285,7 @@
             items.push(currentTheme.distractors[Math.floor(Math.random() * currentTheme.distractors.length)]);
         }
         items = items.sort(() => Math.random() - 0.5);
+        const imageUrls = assignImages(items);
 
         for (let i = 0; i < 9; i++) {
             let row = Math.floor(i / 3);
@@ -235,7 +296,7 @@
             cellDiv.className = 'cell';
             cellDiv.innerHTML = `
                 <div class="flipper">
-                    <div class="front" style="background-image: url('${getSvgUri(items[i], currentTheme.bgColor)}')"></div>
+                    <div class="front" style="background-image: url('${imageUrls[i]}')"></div>
                     <div class="back"></div>
                 </div>
                 <div class="selected-overlay"></div>
