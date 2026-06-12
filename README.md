@@ -15,18 +15,21 @@
 | `Registration [BV1hfieBqE3u]/` | 用户身份统一注册中心 | [BV1hfieBqE3u](https://www.bilibili.com/video/BV1hfieBqE3u) |
 | `Sisyphus/` | 西西弗斯验证码 | — |
 | `Sort/` | 机器人身份验证（排序） | — |
+| `FOCUS/` | 地狱级人机验证 | [BV1UT42167xb](https://www.bilibili.com/video/BV1UT42167xb) |
 | `Wheel/` | 内定必中大转盘 | — |
 
 > 文件夹命名规则：带 `[BVxxxx]` 的表示有对应的 B 站视频，文件夹里同名 `html`（去掉中括号）就是整活页面入口。
 
 ## 开启 GitHub Pages
 
-仓库已经推到 `main` 分支，只需要：
+仓库已配置 GitHub Actions 自动部署（`.github/workflows/pages.yml`）。推送到 `main` 后会自动发布到：
 
-1. 打开仓库 **Settings → Pages**。
-2. **Source** 选择 `Deploy from a branch`。
-3. **Branch** 选择 `main`，目录保持 `/ (root)`。
-4. 保存后等待一两分钟，访问 [https://cs-lx.github.io/Inhuman/](https://cs-lx.github.io/Inhuman/) 即可。
+**https://cs-lx.github.io/Inhuman/**
+
+首次启用时，请在仓库 **Settings → Pages** 中确认 **Source** 为 **GitHub Actions**。若仍使用旧的手动分支部署，也可改为：
+
+1. **Source** 选择 `Deploy from a branch`。
+2. **Branch** 选择 `main`，目录保持 `/ (root)`。
 
 本仓库已经包含：
 
